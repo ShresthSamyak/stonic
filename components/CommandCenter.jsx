@@ -67,6 +67,7 @@ export default function CommandCenter() {
   const [text, setText] = useState("");
   const [sttSupported, setSttSupported] = useState(true);
   const [ttsOn, setTtsOn] = useState(true);
+  const [sttLang, setSttLang] = useState("hi-IN"); // mic language: hi-IN (Hindi/Hinglish) or en-IN (English)
   const [tab, setTab] = useState("CHATS");
 
   const recognitionRef = useRef(null);
@@ -207,8 +208,9 @@ export default function CommandCenter() {
     }
     const rec = new SR();
     recognitionRef.current = rec;
-    // hi-IN handles Hindi + Hinglish speech well
-    rec.lang = "hi-IN";
+    // mic language chosen via the EN/HI toggle:
+    // hi-IN catches Hindi + Hinglish (shows Devanagari); en-IN keeps English speech in Latin letters
+    rec.lang = sttLang;
     rec.interimResults = true;
     rec.continuous = false;
     rec.maxAlternatives = 1;
@@ -569,6 +571,22 @@ export default function CommandCenter() {
               >
                 🎙 {status === "listening" ? "Listening…" : "Voice Assistant"}
               </button>
+              <div className="lang-seg" title="Mic language">
+                <button
+                  className={sttLang === "en-IN" ? "on" : ""}
+                  onClick={() => setSttLang("en-IN")}
+                  disabled={status === "listening"}
+                >
+                  EN
+                </button>
+                <button
+                  className={sttLang === "hi-IN" ? "on" : ""}
+                  onClick={() => setSttLang("hi-IN")}
+                  disabled={status === "listening"}
+                >
+                  HI
+                </button>
+              </div>
               <label className="vbtn" style={{ cursor: "pointer" }}>
                 <input
                   type="checkbox"

@@ -1009,6 +1009,33 @@ button {
   border-color: var(--border-strong);
   color: var(--teal);
 }
+.lang-seg {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  overflow: hidden;
+}
+.lang-seg button {
+  padding: 7px 11px;
+  border: none;
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+}
+.lang-seg button + button {
+  border-left: 1px solid var(--border);
+}
+.lang-seg button.on {
+  background: rgba(46, 230, 200, 0.14);
+  color: var(--teal);
+}
+.lang-seg button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .live {
   margin-left: auto;
   display: inline-flex;
