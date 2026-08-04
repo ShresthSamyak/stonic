@@ -1,9 +1,9 @@
 import "./globals.css";
 
 export const metadata = {
-  title: "Stonic AI — आपका हिंदी JARVIS | Voice Assistant",
+  title: "Stonic AI — Your JARVIS Voice Assistant",
   description:
-    "आपके PC के लिए हिंदी बोलने वाला AI वॉइस असिस्टेंट। बोलिए, वो रिसर्च करता है, रिपोर्ट बनाता है और जवाब देता है। DeepSeek से संचालित।",
+    "A bilingual (Hinglish) AI voice assistant for your PC. Speak, and the agents research, write a report and reply out loud. Powered by DeepSeek.",
 };
 
 export const viewport = {
@@ -14,7 +14,7 @@ export const viewport = {
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="hi">
+    <html lang="en">
       <body>{children}</body>
     </html>
   );

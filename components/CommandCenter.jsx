@@ -9,27 +9,31 @@ const MODULES = [
   { icon: "⚙️", name: "Settings", color: "#ff5666" },
 ];
 
+// each agent has a "home" desk + a colour
 const AGENTS = [
-  { id: "alice", name: "Alice", role: "रिसर्च", color: "#4ade80", x: 30, y: 40 },
-  { id: "bob", name: "Bob", role: "रिपोर्ट", color: "#35c9f0", x: 62, y: 34 },
-  { id: "carol", name: "Carol", role: "डेटा", color: "#f5a623", x: 40, y: 68 },
-  { id: "dave", name: "Dave", role: "वॉइस", color: "#a78bfa", x: 74, y: 64 },
+  { id: "alice", name: "Alice", role: "Research", color: "#4ade80", hx: 20, hy: 34 },
+  { id: "bob", name: "Bob", role: "Report", color: "#35c9f0", hx: 80, hy: 32 },
+  { id: "carol", name: "Carol", role: "Data", color: "#f5a623", hx: 22, hy: 78 },
+  { id: "dave", name: "Dave", role: "Voice", color: "#a78bfa", hx: 80, hy: 78 },
 ];
 
-// stage -> which agent is working + the task label shown above them
+// research hub position (center of the floor) where the active agent walks to
+const HUB = { x: 50, y: 52 };
+
+// stage -> which agent works + the task shown above them + the action emoji
 const STAGE_AGENT = {
-  0: { id: "dave", task: "आवाज़ सुन रहा है…" },
-  2: { id: "alice", task: "रिसर्च कर रही है…" },
-  3: { id: "bob", task: "रिपोर्ट लिख रहा है…" },
-  4: { id: "dave", task: "जवाब भेज रहा है…" },
+  0: { id: "dave", task: "Listening…", emoji: "🎧" },
+  2: { id: "alice", task: "Researching…", emoji: "🔎" },
+  3: { id: "bob", task: "Writing report…", emoji: "📄" },
+  4: { id: "dave", task: "Sending reply…", emoji: "💬" },
 };
 
 const STAGE_THOUGHT = [
-  "🎙️  आवाज़ कैप्चर हो रही है…",
-  "🧠  कमांड पार्स कर रहा हूँ, इरादा समझ रहा हूँ…",
-  "🔎  एजेंट Alice को रिसर्च टास्क सौंपा — जानकारी जुटाई जा रही है…",
-  "📄  एजेंट Bob निष्कर्षों को एक साफ़ रिपोर्ट में बदल रहा है…",
-  "💬  रिपोर्ट तैयार — जवाब बोलकर सुनाया जा रहा है…",
+  "🎙️  Capturing your voice…",
+  "🧠  Parsing the command, understanding intent…",
+  "🔎  Assigned research task to Alice — gathering information…",
+  "📄  Bob is turning the findings into a clean report…",
+  "💬  Report ready — speaking the reply out loud…",
 ];
 
 // deterministic particle field for the core sphere (no Math.random => no hydration mismatch)
@@ -38,11 +42,10 @@ function useSphereDots(n = 74) {
     const dots = [];
     const golden = Math.PI * (3 - Math.sqrt(5));
     for (let i = 0; i < n; i++) {
-      const r = Math.sqrt(i / n) * 46; // percent radius
+      const r = Math.sqrt(i / n) * 46;
       const a = i * golden;
-      // round to 2 decimals so SSR and client render byte-identical strings (no hydration mismatch)
       const x = Math.round((50 + r * Math.cos(a)) * 100) / 100;
-      const y = Math.round((50 + r * Math.sin(a) * 0.72) * 100) / 100; // squash for globe feel
+      const y = Math.round((50 + r * Math.sin(a) * 0.72) * 100) / 100;
       const pick = i % 7;
       const color = pick === 0 ? "#f5a623" : pick < 3 ? "#35c9f0" : "#2ee6c8";
       const size = 2 + (i % 3);
@@ -114,12 +117,15 @@ export default function CommandCenter() {
       const synth = window.speechSynthesis;
       synth.cancel();
       const u = new SpeechSynthesisUtterance(t);
-      u.lang = "hi-IN";
+      // Hinglish: use a Hindi voice if the text has Devanagari, else an Indian-English voice
+      const hasDevanagari = /[ऀ-ॿ]/.test(t);
+      u.lang = hasDevanagari ? "hi-IN" : "en-IN";
       const voices = synth.getVoices();
-      const hi =
-        voices.find((v) => v.lang && v.lang.toLowerCase().startsWith("hi")) ||
-        voices.find((v) => /hindi/i.test(v.name || ""));
-      if (hi) u.voice = hi;
+      const pick = hasDevanagari
+        ? voices.find((v) => v.lang && v.lang.toLowerCase().startsWith("hi"))
+        : voices.find((v) => v.lang === "en-IN") ||
+          voices.find((v) => v.lang && v.lang.toLowerCase().startsWith("en"));
+      if (pick) u.voice = pick;
       u.onstart = () => {
         setStatus("speaking");
         setStage(4);
@@ -164,19 +170,19 @@ export default function CommandCenter() {
           body: JSON.stringify({ messages: nextMessages }),
         });
         const data = await res.json();
-        const reply = data?.reply || "माफ़ कीजिए, कोई जवाब नहीं मिला।";
+        const reply = data?.reply || "Sorry, I didn't get a reply.";
         if (data?.error === "no_key") setError(reply);
         clearTimers();
         setStageAndThought(4);
         const thought =
-          "कमांड मिली → इरादा समझा → Alice ने रिसर्च की → Bob ने रिपोर्ट बनाई → जवाब तैयार।";
+          "Command received → intent parsed → Alice researched → Bob wrote the report → reply ready.";
         setMessages((m) => [...m, { role: "assistant", content: reply, thought }]);
         speak(reply);
       } catch (e) {
         clearTimers();
         setStage(-1);
         setStatus("idle");
-        setError("सर्वर से कनेक्ट नहीं हो पाया। कृपया दोबारा प्रयास करें।");
+        setError("Couldn't connect to the server. Please try again.");
       }
     },
     [speak, status]
@@ -196,11 +202,12 @@ export default function CommandCenter() {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) {
       setSttSupported(false);
-      setError("यह ब्राउज़र वॉइस इनपुट सपोर्ट नहीं करता। Chrome या Edge इस्तेमाल करें, या नीचे टाइप करें।");
+      setError("Voice input isn't supported in this browser. Use Chrome or Edge, or type below.");
       return;
     }
     const rec = new SR();
     recognitionRef.current = rec;
+    // hi-IN handles Hindi + Hinglish speech well
     rec.lang = "hi-IN";
     rec.interimResults = true;
     rec.continuous = false;
@@ -224,8 +231,8 @@ export default function CommandCenter() {
     };
     rec.onerror = (e) => {
       if (e.error === "not-allowed" || e.error === "service-not-allowed")
-        setError("माइक्रोफ़ोन की अनुमति नहीं मिली। ब्राउज़र में mic access दें।");
-      else if (e.error === "no-speech") setError("कोई आवाज़ नहीं सुनाई दी। दोबारा बोलिए।");
+        setError("Microphone permission denied. Please allow mic access in your browser.");
+      else if (e.error === "no-speech") setError("Didn't catch any voice. Please try again.");
       setStatus("idle");
       setStage(-1);
     };
@@ -264,11 +271,11 @@ export default function CommandCenter() {
 
   const micLabel =
     status === "listening"
-      ? "सुन रहा हूँ…"
+      ? "Listening…"
       : status === "thinking"
-      ? "एजेंट काम कर रहे हैं…"
+      ? "Agents working…"
       : status === "speaking"
-      ? "बोल रहा हूँ…"
+      ? "Speaking…"
       : "System Active";
 
   return (
@@ -307,7 +314,7 @@ export default function CommandCenter() {
               <path d="M175 100 L300 100" stroke="#35c9f0" strokeWidth="1.6" opacity="0.7" />
               <circle cx="175" cy="100" r="4" fill="#35c9f0" />
               {coreBusy && (
-                <circle r="3" fill="#2ee6c8" className="flow-dot">
+                <circle r="3" fill="#2ee6c8">
                   <animateMotion dur="1.6s" repeatCount="indefinite" path="M175 100 L300 100" />
                 </circle>
               )}
@@ -347,7 +354,7 @@ export default function CommandCenter() {
                 className={`core-mic ${status === "listening" ? "on" : ""}`}
                 onClick={onMicClick}
                 disabled={status === "thinking" || status === "speaking"}
-                title="बोलने के लिए दबाएँ"
+                title="Press to talk"
               >
                 {status === "listening" ? "⏹" : "🎙"}
               </button>
@@ -355,7 +362,7 @@ export default function CommandCenter() {
           </div>
         </div>
 
-        {/* Agent Town */}
+        {/* Agent Town — game scene */}
         <div className="panel agenttown">
           <div className="panel-h">
             <div className="pt">
@@ -382,27 +389,70 @@ export default function CommandCenter() {
             </div>
 
             <div className="floor">
-              <div className="room" style={{ left: "4%", top: "8%", width: "54%", height: "44%" }} />
-              <div className="room" style={{ left: "40%", top: "50%", width: "56%", height: "42%" }} />
-              {/* desks */}
-              <div className="desk" style={{ left: "22%", top: "34%", width: "14%", height: "8%" }} />
-              <div className="desk" style={{ left: "56%", top: "28%", width: "14%", height: "8%" }} />
-              <div className="desk" style={{ left: "34%", top: "62%", width: "14%", height: "8%" }} />
-              <div className="desk" style={{ left: "68%", top: "58%", width: "14%", height: "8%" }} />
+              {/* rooms */}
+              <div className="room" style={{ left: "3%", top: "8%", width: "44%", height: "40%" }}>
+                <span className="room-tag">Research Lab</span>
+              </div>
+              <div className="room" style={{ left: "53%", top: "8%", width: "44%", height: "40%" }}>
+                <span className="room-tag">Report Desk</span>
+              </div>
+              <div className="room" style={{ left: "3%", top: "54%", width: "44%", height: "40%" }}>
+                <span className="room-tag">Data Bay</span>
+              </div>
+              <div className="room" style={{ left: "53%", top: "54%", width: "44%", height: "40%" }}>
+                <span className="room-tag">Broadcast</span>
+              </div>
 
+              {/* rug + central holo research hub */}
+              <div className="furn rug" style={{ left: "50%", top: "52%" }} />
+              <div className={`furn holo ${activeAgentId ? "active" : ""}`} style={{ left: "50%", top: "52%" }}>
+                <div className="hring a" />
+                <div className="hring b" />
+                <div className="disc" />
+                <div className="hlabel">Hub</div>
+              </div>
+
+              {/* furniture: desks + monitors + chairs near each home */}
+              {AGENTS.map((a) => (
+                <div key={"d" + a.id}>
+                  <div className="furn desk" style={{ left: `${a.hx}%`, top: `${a.hy + 8}%` }}>
+                    <div className="monitor" />
+                  </div>
+                  <div className="furn chair" style={{ left: `${a.hx}%`, top: `${a.hy + 17}%` }} />
+                </div>
+              ))}
+
+              {/* decor */}
+              <div className="furn plant" style={{ left: "8%", top: "20%" }}>🪴</div>
+              <div className="furn plant" style={{ left: "92%", top: "20%" }}>🌿</div>
+              <div className="furn plant" style={{ left: "8%", top: "86%" }}>🌵</div>
+              <div className="furn server" style={{ left: "95%", top: "62%" }}>
+                <i /><i /><i /><i /><i />
+              </div>
+
+              {/* agents */}
               {AGENTS.map((a) => {
                 const busy = activeAgentId === a.id;
+                const x = busy ? HUB.x : a.hx;
+                const y = busy ? HUB.y : a.hy;
                 return (
                   <div
                     key={a.id}
                     className={`agent ${busy ? "busy" : ""}`}
-                    style={{ left: `${a.x}%`, top: `${a.y}%`, color: a.color }}
+                    style={{ left: `${x}%`, top: `${y}%`, color: a.color }}
                   >
                     {busy && activeAgentInfo?.task && (
                       <div className="bubble-task">{activeAgentInfo.task}</div>
                     )}
-                    <div className="body" style={{ background: a.color }}>
-                      {a.name[0]}
+                    <div className="char">
+                      {busy && activeAgentInfo?.emoji && (
+                        <span className="action">{activeAgentInfo.emoji}</span>
+                      )}
+                      <div className="head" style={{ background: a.color }}>
+                        {a.name[0]}
+                      </div>
+                      <div className="torso" />
+                      <div className="shadow" />
                     </div>
                     <div className="nm">{a.name}</div>
                   </div>
@@ -414,7 +464,7 @@ export default function CommandCenter() {
               <span className="tf online">
                 <span className="led" /> Online
               </span>
-              <span className="tf">👥 4/7 seat</span>
+              <span className="tf">👥 4/7 seats</span>
               <span className="tf">⚡ {busyCount}/4 busy</span>
               <span className="chat-fab">💬 Chat</span>
             </div>
@@ -423,15 +473,11 @@ export default function CommandCenter() {
       </div>
 
       {/* ===================== RIGHT COLUMN (chat) ===================== */}
-      <div className="col">
+      <div className="col col-right">
         <div className="panel chatpanel">
           <div className="chat-tabs">
             {["CHATS", "LOGS", "TASKS", "NOTES"].map((t) => (
-              <span
-                key={t}
-                className={`ct ${tab === t ? "on" : ""}`}
-                onClick={() => setTab(t)}
-              >
+              <span key={t} className={`ct ${tab === t ? "on" : ""}`} onClick={() => setTab(t)}>
                 {t}
               </span>
             ))}
@@ -443,7 +489,7 @@ export default function CommandCenter() {
 
           {!sttSupported && (
             <div className="notice">
-              वॉइस इनपुट इस ब्राउज़र में उपलब्ध नहीं — Chrome/Edge इस्तेमाल करें या नीचे टाइप करें।
+              Voice input isn't available in this browser — use Chrome or Edge, or just type below.
             </div>
           )}
           {error && <div className="notice">{error}</div>}
@@ -451,17 +497,18 @@ export default function CommandCenter() {
           <div className="messages">
             {messages.length === 0 && (
               <div className="msg-empty">
-                🎙️ माइक दबाइए और हिंदी में कुछ पूछिए —<br />
-                जैसे “भारत के बारे में तीन रोचक बातें बताओ”।<br />
+                🎙️ Tap the mic and ask anything in Hindi, English or Hinglish —<br />
+                like “India ke baare mein 3 interesting facts batao”.
                 <br />
-                एजेंट रिसर्च करेंगे, रिपोर्ट बनाएँगे और Stonic आपको बोलकर जवाब देगा।
+                <br />
+                The agents research, write a report, and Stonic replies out loud.
               </div>
             )}
 
             {messages.map((m, i) =>
               m.role === "user" ? (
                 <div className="msg user fade-in" key={i}>
-                  <div className="m-label">आप</div>
+                  <div className="m-label">You</div>
                   <div className="m-user-bubble">{m.content}</div>
                 </div>
               ) : (
@@ -494,7 +541,7 @@ export default function CommandCenter() {
                     <span className="eq active">
                       <span /><span /><span /><span /><span />
                     </span>
-                    एजेंट काम कर रहे हैं…
+                    Agents are working…
                   </span>
                 </div>
               </div>
@@ -520,7 +567,7 @@ export default function CommandCenter() {
                 onClick={onMicClick}
                 disabled={status === "thinking" || status === "speaking"}
               >
-                🎙 {status === "listening" ? "सुन रहा हूँ…" : "Voice Assistant"}
+                🎙 {status === "listening" ? "Listening…" : "Voice Assistant"}
               </button>
               <label className="vbtn" style={{ cursor: "pointer" }}>
                 <input
@@ -529,7 +576,7 @@ export default function CommandCenter() {
                   onChange={(e) => setTtsOn(e.target.checked)}
                   style={{ accentColor: "var(--teal)", marginRight: 4 }}
                 />
-                बोलकर जवाब
+                Voice Reply
               </label>
               <span className="live">
                 <span className="led" /> Live Connected

@@ -1,14 +1,15 @@
 // Server-side route. The DeepSeek key lives in .env.local and NEVER reaches the browser.
 export const runtime = "nodejs";
 
-const SYSTEM_PROMPT = `तुम "Stonic" हो — एक फ्यूचरिस्टिक हिंदी AI वॉइस असिस्टेंट, बिल्कुल जैसे किसी sci-fi फिल्म का JARVIS।
+const SYSTEM_PROMPT = `You are "Stonic" — a friendly, futuristic AI voice assistant, like JARVIS but desi.
 
-नियम:
-- हमेशा हिंदी (देवनागरी) में जवाब दो, आसान और बातचीत वाली भाषा में। ज़रूरत हो तो अंग्रेज़ी के common शब्द ठीक हैं।
-- जवाब बोलकर सुनाने लायक हो — छोटा, साफ़ और natural। 2 से 5 वाक्य काफी हैं जब तक user ज़्यादा detail न माँगे।
-- अगर user कोई जानकारी या रिसर्च माँगे, तो ऐसे जवाब दो जैसे तुमने पता लगाकर एक छोटी रिपोर्ट तैयार की हो — सीधे मुद्दे की बात, points में अगर ज़रूरी हो।
-- markdown symbols (*, #) कम इस्तेमाल करो क्योंकि यह टेक्स्ट बोलकर सुनाया जाएगा।
-- गर्मजोशी और थोड़ा confident tone रखो, पर बकवास मत करो।`;
+Rules:
+- The user may speak in Hindi, English, or Hinglish (Hindi written in Roman letters, mixed with English). Understand all of them effortlessly.
+- Reply in natural HINGLISH — a warm blend of English and Hindi, mostly in Roman/English script (e.g. "Sure! Main aapko iske baare mein 3 interesting facts batata hoon..."). Let both languages flow together naturally.
+- Answers must sound good when spoken aloud — short, clear and conversational. 2 to 5 sentences unless the user asks for more detail.
+- If the user asks for information or research, answer like you quickly researched and prepared a short report — straight to the point, small bullet points only if genuinely helpful.
+- Avoid heavy markdown symbols (*, #) because the reply is read out loud.
+- Be confident and warm, thoda friendly, but no rambling.`;
 
 export async function POST(req) {
   const key = process.env.DEEPSEEK_API_KEY;
@@ -20,7 +21,7 @@ export async function POST(req) {
       {
         error: "no_key",
         reply:
-          "DeepSeek API key सेट नहीं है। कृपया प्रोजेक्ट की .env.local फाइल में अपनी असली key डालें और सर्वर दोबारा चालू करें।",
+          "DeepSeek API key is not set. Please add your real key in the project's .env.local file and restart the server.",
       },
       { status: 200 }
     );
@@ -30,7 +31,7 @@ export async function POST(req) {
   try {
     body = await req.json();
   } catch {
-    return Response.json({ error: "bad_request", reply: "अनुरोध समझ नहीं आया।" }, { status: 400 });
+    return Response.json({ error: "bad_request", reply: "Couldn't understand the request." }, { status: 400 });
   }
 
   const history = Array.isArray(body?.messages) ? body.messages : [];
@@ -64,21 +65,21 @@ export async function POST(req) {
         {
           error: "upstream",
           reply:
-            "माफ़ कीजिए, DeepSeek से जवाब नहीं मिल पाया। थोड़ी देर बाद फिर कोशिश करें या अपनी API key जाँच लें।",
+            "Sorry, couldn't get a response from DeepSeek. Please try again in a moment or check your API key.",
         },
         { status: 200 }
       );
     }
 
     const data = await res.json();
-    const reply = data?.choices?.[0]?.message?.content?.trim() || "माफ़ कीजिए, मुझे जवाब नहीं मिला।";
+    const reply = data?.choices?.[0]?.message?.content?.trim() || "Sorry, I didn't get a reply.";
     return Response.json({ reply });
   } catch (err) {
     console.error("chat route failed", err);
     return Response.json(
       {
         error: "exception",
-        reply: "कुछ तकनीकी दिक्कत आ गई। कृपया दोबारा प्रयास करें।",
+        reply: "Something went wrong technically. Please try again.",
       },
       { status: 200 }
     );
