@@ -67,7 +67,7 @@ export default function CommandCenter() {
   const [text, setText] = useState("");
   const [sttSupported, setSttSupported] = useState(true);
   const [ttsOn, setTtsOn] = useState(true);
-  const [sttLang, setSttLang] = useState("hi-IN"); // mic language: hi-IN (Hindi/Hinglish) or en-IN (English)
+  const [ttsVoice, setTtsVoice] = useState("aria"); // edge-tts neural voice (English)
   const [tab, setTab] = useState("CHATS");
 
   const recognitionRef = useRef(null);
@@ -75,6 +75,12 @@ export default function CommandCenter() {
   const timersRef = useRef([]);
   const messagesRef = useRef([]);
   const messagesEndRef = useRef(null);
+  const audioRef = useRef(null);
+  const ttsVoiceRef = useRef("aria");
+
+  useEffect(() => {
+    ttsVoiceRef.current = ttsVoice;
+  }, [ttsVoice]);
 
   useEffect(() => {
     messagesRef.current = messages;
@@ -108,40 +114,89 @@ export default function CommandCenter() {
     }
   };
 
+  // stop any playing edge-tts audio and any browser speech
+  const stopAudio = useCallback(() => {
+    if (audioRef.current) {
+      try {
+        audioRef.current.pause();
+        audioRef.current.src = "";
+      } catch {}
+      audioRef.current = null;
+    }
+    if (typeof window !== "undefined" && window.speechSynthesis) window.speechSynthesis.cancel();
+  }, []);
+
+  // fallback: browser SpeechSynthesis (used only if edge-tts is unavailable)
+  const browserSpeak = useCallback((t) => {
+    if (typeof window === "undefined" || !window.speechSynthesis) {
+      setStatus("idle");
+      setStage(-1);
+      return;
+    }
+    const synth = window.speechSynthesis;
+    synth.cancel();
+    const u = new SpeechSynthesisUtterance(t);
+    u.lang = "en-US";
+    const voices = synth.getVoices();
+    const pick =
+      voices.find((v) => v.lang === "en-US") ||
+      voices.find((v) => v.lang && v.lang.toLowerCase().startsWith("en"));
+    if (pick) u.voice = pick;
+    u.onstart = () => {
+      setStatus("speaking");
+      setStage(4);
+    };
+    u.onend = () => {
+      setStatus("idle");
+      setStage(-1);
+    };
+    u.onerror = () => {
+      setStatus("idle");
+      setStage(-1);
+    };
+    synth.speak(u);
+  }, []);
+
+  // primary: Edge TTS neural voice via /api/tts, with graceful fallback
   const speak = useCallback(
-    (t) => {
-      if (!ttsOn || typeof window === "undefined" || !window.speechSynthesis) {
+    async (t) => {
+      if (!ttsOn) {
         setStatus("idle");
         setStage(-1);
         return;
       }
-      const synth = window.speechSynthesis;
-      synth.cancel();
-      const u = new SpeechSynthesisUtterance(t);
-      // Hinglish: use a Hindi voice if the text has Devanagari, else an Indian-English voice
-      const hasDevanagari = /[ऀ-ॿ]/.test(t);
-      u.lang = hasDevanagari ? "hi-IN" : "en-IN";
-      const voices = synth.getVoices();
-      const pick = hasDevanagari
-        ? voices.find((v) => v.lang && v.lang.toLowerCase().startsWith("hi"))
-        : voices.find((v) => v.lang === "en-IN") ||
-          voices.find((v) => v.lang && v.lang.toLowerCase().startsWith("en"));
-      if (pick) u.voice = pick;
-      u.onstart = () => {
-        setStatus("speaking");
-        setStage(4);
-      };
-      u.onend = () => {
-        setStatus("idle");
-        setStage(-1);
-      };
-      u.onerror = () => {
-        setStatus("idle");
-        setStage(-1);
-      };
-      synth.speak(u);
+      stopAudio();
+      setStatus("speaking");
+      setStage(4);
+      try {
+        const res = await fetch("/api/tts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: t, voice: ttsVoiceRef.current }),
+        });
+        if (!res.ok) throw new Error("tts_failed");
+        const blob = await res.blob();
+        if (!blob || blob.size < 200) throw new Error("empty_audio");
+        const url = URL.createObjectURL(blob);
+        const audio = new Audio(url);
+        audioRef.current = audio;
+        audio.onended = () => {
+          URL.revokeObjectURL(url);
+          if (audioRef.current === audio) audioRef.current = null;
+          setStatus("idle");
+          setStage(-1);
+        };
+        audio.onerror = () => {
+          URL.revokeObjectURL(url);
+          browserSpeak(t);
+        };
+        await audio.play();
+      } catch (e) {
+        // edge-tts unavailable -> fall back to the browser voice
+        browserSpeak(t);
+      }
     },
-    [ttsOn]
+    [ttsOn, stopAudio, browserSpeak]
   );
 
   const runStageAnimation = () => {
@@ -199,7 +254,7 @@ export default function CommandCenter() {
 
   const startListening = () => {
     setError("");
-    if (typeof window !== "undefined" && window.speechSynthesis) window.speechSynthesis.cancel();
+    stopAudio();
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) {
       setSttSupported(false);
@@ -208,9 +263,7 @@ export default function CommandCenter() {
     }
     const rec = new SR();
     recognitionRef.current = rec;
-    // mic language chosen via the EN/HI toggle:
-    // hi-IN catches Hindi + Hinglish (shows Devanagari); en-IN keeps English speech in Latin letters
-    rec.lang = sttLang;
+    rec.lang = "en-US";
     rec.interimResults = true;
     rec.continuous = false;
     rec.maxAlternatives = 1;
@@ -349,7 +402,7 @@ export default function CommandCenter() {
               <span className="led" /> {micLabel}
             </div>
             <div className="core-actions">
-              <button className="terminate" onClick={() => window.speechSynthesis?.cancel()}>
+              <button className="terminate" onClick={stopAudio}>
                 Terminate
               </button>
               <button
@@ -499,8 +552,8 @@ export default function CommandCenter() {
           <div className="messages">
             {messages.length === 0 && (
               <div className="msg-empty">
-                🎙️ Tap the mic and ask anything in Hindi, English or Hinglish —<br />
-                like “India ke baare mein 3 interesting facts batao”.
+                🎙️ Tap the mic and ask me anything —<br />
+                like “Tell me 3 interesting facts about India”.
                 <br />
                 <br />
                 The agents research, write a report, and Stonic replies out loud.
@@ -571,22 +624,6 @@ export default function CommandCenter() {
               >
                 🎙 {status === "listening" ? "Listening…" : "Voice Assistant"}
               </button>
-              <div className="lang-seg" title="Mic language">
-                <button
-                  className={sttLang === "en-IN" ? "on" : ""}
-                  onClick={() => setSttLang("en-IN")}
-                  disabled={status === "listening"}
-                >
-                  EN
-                </button>
-                <button
-                  className={sttLang === "hi-IN" ? "on" : ""}
-                  onClick={() => setSttLang("hi-IN")}
-                  disabled={status === "listening"}
-                >
-                  HI
-                </button>
-              </div>
               <label className="vbtn" style={{ cursor: "pointer" }}>
                 <input
                   type="checkbox"
@@ -596,6 +633,19 @@ export default function CommandCenter() {
                 />
                 Voice Reply
               </label>
+              <select
+                className="voice-select"
+                value={ttsVoice}
+                onChange={(e) => setTtsVoice(e.target.value)}
+                title="Edge TTS voice"
+              >
+                <option value="aria">Aria (US ♀)</option>
+                <option value="guy">Guy (US ♂)</option>
+                <option value="neerja">Neerja (IN ♀)</option>
+                <option value="prabhat">Prabhat (IN ♂)</option>
+                <option value="sonia">Sonia (UK ♀)</option>
+                <option value="ryan">Ryan (UK ♂)</option>
+              </select>
               <span className="live">
                 <span className="led" /> Live Connected
               </span>
