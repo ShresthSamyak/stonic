@@ -77,6 +77,7 @@ export default function CommandCenter() {
   const messagesEndRef = useRef(null);
   const audioRef = useRef(null);
   const ttsVoiceRef = useRef("aria");
+  const abortRef = useRef(null);
 
   useEffect(() => {
     ttsVoiceRef.current = ttsVoice;
@@ -126,6 +127,22 @@ export default function CommandCenter() {
     if (typeof window !== "undefined" && window.speechSynthesis) window.speechSynthesis.cancel();
   }, []);
 
+  // interrupt everything: abort in-flight chat/tts requests, stop audio, reset to idle
+  const stopEverything = useCallback(() => {
+    if (abortRef.current) {
+      try {
+        abortRef.current.abort();
+      } catch {}
+      abortRef.current = null;
+    }
+    timersRef.current.forEach((t) => clearTimeout(t));
+    timersRef.current = [];
+    stopAudio();
+    setStatus("idle");
+    setStage(-1);
+    setPartial("");
+  }, [stopAudio]);
+
   // fallback: browser SpeechSynthesis (used only if edge-tts is unavailable)
   const browserSpeak = useCallback((t) => {
     if (typeof window === "undefined" || !window.speechSynthesis) {
@@ -159,7 +176,7 @@ export default function CommandCenter() {
 
   // primary: Edge TTS neural voice via /api/tts, with graceful fallback
   const speak = useCallback(
-    async (t) => {
+    async (t, signal) => {
       if (!ttsOn) {
         setStatus("idle");
         setStage(-1);
@@ -173,6 +190,7 @@ export default function CommandCenter() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ text: t, voice: ttsVoiceRef.current }),
+          signal,
         });
         if (!res.ok) throw new Error("tts_failed");
         const blob = await res.blob();
@@ -192,6 +210,7 @@ export default function CommandCenter() {
         };
         await audio.play();
       } catch (e) {
+        if (e?.name === "AbortError") return; // user hit Stop
         // edge-tts unavailable -> fall back to the browser voice
         browserSpeak(t);
       }
@@ -219,13 +238,18 @@ export default function CommandCenter() {
       setStatus("thinking");
       runStageAnimation();
 
+      const ac = new AbortController();
+      abortRef.current = ac;
+
       try {
         const res = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ messages: nextMessages }),
+          signal: ac.signal,
         });
         const data = await res.json();
+        if (ac.signal.aborted) return; // user hit Stop while the reply was arriving
         const reply = data?.reply || "Sorry, I didn't get a reply.";
         if (data?.error === "no_key") setError(reply);
         clearTimers();
@@ -233,8 +257,9 @@ export default function CommandCenter() {
         const thought =
           "Command received → intent parsed → Alice researched → Bob wrote the report → reply ready.";
         setMessages((m) => [...m, { role: "assistant", content: reply, thought }]);
-        speak(reply);
+        speak(reply, ac.signal);
       } catch (e) {
+        if (e?.name === "AbortError") return; // user hit Stop mid-request
         clearTimers();
         setStage(-1);
         setStatus("idle");
@@ -402,7 +427,7 @@ export default function CommandCenter() {
               <span className="led" /> {micLabel}
             </div>
             <div className="core-actions">
-              <button className="terminate" onClick={stopAudio}>
+              <button className="terminate" onClick={stopEverything}>
                 Terminate
               </button>
               <button
@@ -617,13 +642,18 @@ export default function CommandCenter() {
               </button>
             </form>
             <div className="chat-controls">
-              <button
-                className={`vbtn primary ${status === "listening" ? "on" : ""}`}
-                onClick={onMicClick}
-                disabled={status === "thinking" || status === "speaking"}
-              >
-                🎙 {status === "listening" ? "Listening…" : "Voice Assistant"}
-              </button>
+              {status === "thinking" || status === "speaking" ? (
+                <button className="vbtn stop" onClick={stopEverything}>
+                  ⏹ Stop
+                </button>
+              ) : (
+                <button
+                  className={`vbtn primary ${status === "listening" ? "on" : ""}`}
+                  onClick={onMicClick}
+                >
+                  🎙 {status === "listening" ? "Listening…" : "Voice Assistant"}
+                </button>
+              )}
               <label className="vbtn" style={{ cursor: "pointer" }}>
                 <input
                   type="checkbox"

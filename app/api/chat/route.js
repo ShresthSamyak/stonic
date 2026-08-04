@@ -8,10 +8,11 @@ LANGUAGE — this is the most important rule:
 - Understand input in any language, but your OUTPUT is always plain English.
 
 STYLE:
-- Sound good when spoken aloud — short, clear and conversational. 2 to 5 sentences unless the user asks for more detail.
-- For info/research questions, answer like you quickly researched and prepared a short report — straight to the point.
+- Keep replies SHORT — 1 to 2 sentences by default. Get straight to the point. Only go longer if the user explicitly asks for more detail.
+- Sound good when spoken aloud — clear and conversational.
+- For info questions, give the answer directly, no filler or long preamble.
 - Avoid heavy markdown symbols (*, #) because the reply is read out loud.
-- Warm, confident and friendly, but no rambling.`;
+- Warm and friendly, but concise — no rambling.`;
 
 export async function POST(req) {
   const key = process.env.DEEPSEEK_API_KEY;
@@ -55,7 +56,7 @@ export async function POST(req) {
         model,
         messages,
         temperature: 0.7,
-        max_tokens: 700,
+        max_tokens: 220,
         stream: false,
       }),
     });
